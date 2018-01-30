@@ -1,6 +1,3 @@
-"""Hello Analytics Reporting API V4."""
-"""When you come back to this - the url is https://developers.google.com/analytics/devguides/reporting/core/v4/"""
-
 import argparse
 
 from apiclient.discovery import build
@@ -22,6 +19,8 @@ import yaml
 from datetime import datetime
 import calendar
 
+import dummy_meta
+
 YEAR = input('Enter the year you are interested in ')
 MONTH = input('Enter the short name of the month ')
 START_DATE = datetime.strptime(MONTH + ' ' + YEAR, '%b %Y')
@@ -31,7 +30,7 @@ END_DATE = datetime.strptime(str(DAYS_IN_MONTH[1]) + ' ' + MONTH + ' ' + YEAR , 
 
 print('Processing analytics from', START_DATE.strftime('%Y-%m-%d'), 'to', END_DATE.strftime('%Y-%m-%d'))
 
-## APIs being used
+## GOOGLE APIs being used
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly', 'https://www.googleapis.com/auth/spreadsheets']
 
 ## Discovery URI for APIs
@@ -43,13 +42,11 @@ SHEETS_DISCOVERY_URI = ('https://sheets.googleapis.com/$discovery/rest?'
 KEY_FILE_LOCATION = 'mycreds.p12'
 SERVICE_ACCOUNT_EMAIL = 'id-018-analytics@ancient-sandbox-191211.iam.gserviceaccount.com'
 
-## GitHub integration
+## GitHub integration - token is stored in form key: token in github.yml
 with open('github.yml', 'r') as f:
     auth = yaml.load(f.read())
 git = Github(auth['key'])
 org = git.get_organization('raspberrypilearning')
-
-
 
 
 def initialize_api():
@@ -69,6 +66,7 @@ def initialize_api():
     sheets = build('sheets', 'v4', http=http, discoveryServiceUrl=SHEETS_DISCOVERY_URI)
 
     return analytics, sheets
+
 
 def get_analytics_report(analytics):
     ## View ID for Analytics - https://ga-dev-tools.appspot.com/query-explorer/
@@ -92,8 +90,14 @@ def get_analytics_report(analytics):
 
                     ],
                     "orderBys":[{
-                        "fieldName": "ga:pagePathLevel3",
-                        "sortOrder": "ASCENDING"}]
+                        "fieldName": "ga:uniquePageviews",
+                        "sortOrder": "ASCENDING"}],
+                    'metricFilterClauses':[{
+                        'filters':[
+                            {'metricName': 'ga:pageviews',
+                             'operator': 'GREATER_THAN',
+                             'comparisonValue': '5'}]}]
+
                 },
                 ## This report gets data on page views after first page
                 {
@@ -108,33 +112,41 @@ def get_analytics_report(analytics):
                                    {'name': 'ga:pagePathLevel4'},
                     ],
                     "orderBys":[{
-                        "fieldName": "ga:pagePathLevel3",
-                        "sortOrder": "ASCENDING"}]
+                        "fieldName": "ga:uniquePageviews",
+                        "sortOrder": "ASCENDING"}],
+                                        'metricFilterClauses':[{
+                        'filters':[
+                            {'metricName': 'ga:pageviews',
+                             'operator': 'GREATER_THAN',
+                             'comparisonValue': '5'}]}]
                 }]
         }
     ).execute()
 
 
-def read_sheets(sheets):
+def read_sheets(sheets, range_name):
     spreadsheetId = '1VdqfhNMM66rwBk7VsDoVWeLQbochGRf4S9BsQqH_9is'
-    rangeName = 'Sheet1'
+    rangeName = range_name
     result = sheets.spreadsheets().values().get(
         spreadsheetId=spreadsheetId,
         range=rangeName).execute()
     values = result.get('values', [])
     return values
 
-def write_data(sheets, values):
+
+def write_data(sheets, values, summary):
     spreadsheetId = '1VdqfhNMM66rwBk7VsDoVWeLQbochGRf4S9BsQqH_9is'
-    rangeName = sheet
-    body = {'value_input_option': 'RAW',
+    body = {'value_input_option': 'USER_ENTERED',
             'data': {'range' : MONTH,
-                     'values' : values}
+                     'values' : values},
+            'data': {'range' : 'Summary',
+                     'values' : summary}
             }
 
     result = sheets.spreadsheets().values().batchUpdate(
        spreadsheetId=spreadsheetId,
        body=body).execute() 
+
 
 def fetch_projects():
     '''Use firefox to iterate over projects.raspberrypi.org and return the names of all live projects'''
@@ -179,7 +191,12 @@ def get_meta(repo):
         duration = 0
     return curriculum, duration
 
-def assemble_data():
+def collect_meta(projects):
+    meta_details = {project : get_meta(project) for project in projects}
+    return meta_details
+
+                    
+def assemble_data(meta_details):
     '''Assemble data for each resource, and handle past queries where resources are not in analytics'''
     resources = {}
     for resource in projects:
@@ -190,25 +207,126 @@ def assemble_data():
 
     ##Spreadsheet titles
     values = [['Name',
-               0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,
-               'complete','print',
-               'Curriculum Level', 'design', 'programming', 'phys-comp', 'manufacture', 'community',
-               'duration']]
+               'Viewed', 'Views as % Total',
+               'Engaged','Enagaged as % Views',
+               'Complete', 'Complete as % Views',
+               'Final','Print',
+               'Curriculum Level', 'Design', 'Programming', 'Phys-comp', 'Manufacture', 'Community',
+               'duration',
+               'learning_hours']]
     
     for resource in resources:
-        name = [resource]
-        pages = [resources[resource][str(i)][1] if str(i) in resources[resource].keys() else '0' for i in range(31)]
-        complete = [resources[resource]['complete'][1] if 'complete' in resources[resource].keys() else '0']
-        printed = [resources[resource]['print'][1] if 'print' in resources[resource].keys() else '0']
-        curriculum, duration = get_meta(resource)
-        
-        values.append(name + pages + complete + printed + curriculum + [duration])
-
+        resource_data = []
+        resource_data.append(resource)
+        pages = [resources[resource][str(i)][1] if str(i) in resources[resource].keys() else 0 for i in range(31)]
+        ## Get value of those that clicked the tile
+        viewed = pages[0]
+        viewed_percent = ''
+        resource_data.append(viewed)
+        resource_data.append(viewed_percent)
+        ## Get value of those that progressed through to step 3
+        engaged = pages[3]
+        engaged_percent = int(engaged)/int(viewed) * 100
+        resource_data.append(engaged)
+        resource_data.append(engaged_percent)
+        ## Get last non-zero value of page views for those that made it to end
+        completed = [view for view in pages if view !=0][-1]
+        completed_percent = int(completed)/int(viewed) * 100
+        resource_data.append(completed)
+        resource_data.append(completed_percent)
+        ## Get printed and complete
+        resource_data += [resources[resource]['complete'][1] if 'complete' in resources[resource].keys() else '0']
+        resource_data += [resources[resource]['print'][1] if 'print' in resources[resource].keys() else '0']
+        ## Add curriculum from meta
+        resource_data += meta_details[resource][0]
+        ## add duration from meta
+        resource_data.append(meta_details[resource][1])
+        ## calc and add learning hours
+        if meta_details[resource][1] == 1:
+            learning_hours = 0.25 * int(completed)
+        elif meta_details[resource][1] == 2:
+            learning_hours = 1 * int(completed)
+        elif meta_details[resource][1] == 3:
+            learning_hours = 2 * int(completed)
+        else:
+            learning_hours = 0
+        resource_data.append(learning_hours)
+        values.append(resource_data)
 
     return values
 
+def find_top_three(processed_data):
+    projects = [project[0] for project in processed_data[1:-2]]
+    views = [project[2] for project in processed_data[1:-2]]
+    engaged = [project[4] for project in processed_data[1:-2]]
+    complete = [project[6] for project in processed_data[1:-2]]
+    top_three_views = sorted(zip(views, projects), reverse=True)[:3]
+    top_three_engaged = sorted(zip(engaged, projects), reverse=True)[:3]
+    top_three_complete = sorted(zip(complete, projects), reverse=True)[:3]
+    return top_three_views, top_three_engaged, top_three_complete
+
+def biggest_drop(processed_data):
+    projects = [project[0] for project in processed_data[1:]]
+    percent_engaged = [int(project[2])/int(project[1])*100 for project in processed_data[1:]]
+    percent_complete = [int(project[3])/int(project[1])*100 for project in processed_data[1:]]
+    top_three_percent_engaged = sorted(zip(percent_engaged, projects), reverse=True)[:3]
+    top_three_percent_complete = sorted(zip(percent_engaged, projects), reverse=True)[:3]
+    bottom_three_percent_engaged = sorted(zip(percent_engaged, projects))[:3]
+    bottom_three_percent_complete = sorted(zip(percent_engaged, projects))[:3]
+    return [top_three_percent_engaged,
+            top_three_percent_complete,
+            bottom_three_percent_engaged,
+            bottom_three_percent_complete]
+
+def calc_totals(processed_data):
+    total_views = 0
+    total_engaged = 0
+    total_complete = 0
+    final_page = 0
+    printed = 0
+    learning_hours = 0
+    projects = 0
+    for row in processed_data[1:]:
+        projects += 1
+        total_views += int(row[1])
+        total_engaged += int(row[3])
+        total_complete += int(row[5])
+        final_page += int(row[7])
+        printed += int(row[8])
+        learning_hours += int(row[16])
+                              
+    totals = ['TOTALS', total_views,
+              '', total_engaged,
+              '', total_complete,
+              '', final_page, printed,
+              '','','','','','','',learning_hours]
+    averages = ['AVERAGE',total_views/projects,
+                '', total_engaged/projects,
+                '', total_complete/projects,
+                '', final_page/projects ,printed/projects,
+                '','','','','','','',learning_hours/ projects]
+    processed_data.append(totals)
+    processed_data.append(averages)
+    return processed_data, total_views
+
+def compose_summary(processed_data):
+    top_three_views, top_three_engaged, top_three_complete = find_top_three(processed_data)
+    learning_hours = sum(i[-1] for i in processed_data[1:-2])
+    ## reverse each tuple and flatten
+    top_views = [j for i in top_three_views for j in reversed(i)]
+    top_engaged = [j for i in top_three_engaged for j in reversed(i)]
+    top_complete = [j for i in top_three_complete for j in reversed(i)]
+    past_data = read_sheets(sheets, 'Summary')
+    for row in past_data:
+        if row[0] == MONTH:
+            del(row[1:])
+            row.append(learning_hours)
+            row.extend(top_views + top_engaged + top_complete)
+    return past_data
+    
+
 ##Fetch live projects
-projects = fetch_projects()
+#projects = fetch_projects()
 
 #### Get the API service objects
 analytics, sheets = initialize_api()
@@ -228,6 +346,7 @@ for page in root_pages:
             all_pages_dict[page_name]['1'] = page['metrics'][0]['values']
         except KeyError:
             pass
+                                                         
         
 ## Drill down to project pages
 pages = response['reports'][1]['data']['rows']
@@ -241,4 +360,14 @@ for page in pages:
     except KeyError:
         pass
 
-write_data(sheets, assemble_data())
+# meta_details = collect_meta(projects)
+processed_data = assemble_data(meta_details)
+processed_data, total= calc_totals(processed_data)
+for i in processed_data[1:-2]:
+    total_percent = int(i[1]) / int(total) * 100
+    i[2] = total_percent
+
+summary = compose_summary(processed_data)
+
+
+write_data(sheets, processed_data, summary)
