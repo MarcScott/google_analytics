@@ -1,3 +1,6 @@
+## NOTE - this has an over-reliance on using list indicies.
+## Lists should really be reformated into dictionaries at a later date.
+
 import argparse
 
 from apiclient.discovery import build
@@ -19,7 +22,7 @@ import yaml
 from datetime import datetime
 import calendar
 
-import dummy_meta
+#from dummy_meta import projects, meta_details
 
 YEAR = input('Enter the year you are interested in ')
 MONTH = input('Enter the short name of the month ')
@@ -180,7 +183,7 @@ def get_meta(repo):
     meta_dict = yaml.load(meta_text)
     try:
         curriculum = meta_dict['curriculum'].split()
-        curriculum = [curriculum[0], curriculum[1][-2], curriculum[2][-2], curriculum[3][-2], curriculum[4][-2], curriculum[5][-1]]
+        curriculum = [curriculum[0][:-1], curriculum[1][-2], curriculum[2][-2], curriculum[3][-2], curriculum[4][-2], curriculum[5][-1]]
     except:
         print(repo, 'is missing Curriculum data')
         curriculum = ['None Provided','0','0','0','0', '0']
@@ -312,6 +315,63 @@ def calc_totals(processed_data):
 def compose_summary(processed_data):
     top_three_views, top_three_engaged, top_three_complete = find_top_three(processed_data)
     learning_hours = sum(i[-1] for i in processed_data[1:-2])
+    ## engaged by level
+
+    def summary_strand(strand, metric):
+        if metric == 'engaged':
+            column = 3
+        elif metric == 'completed':
+            column = 5
+        total = 0
+        views = 0
+        for row in processed_data[1:-2]:
+            if int(row[strand]) != 0:
+                total += int(row[column])
+                views += int(row[1])
+        try:
+            percent = total/views * 100
+        except ZeroDivisionError:
+            percent = 0
+        return percent
+
+    def summary_level(level, metric):
+        if metric == 'engaged':
+            column = 3
+        elif metric == 'completed':
+            column = 5
+        
+        total = 0
+        views = 0
+        for row in processed_data[1:-2]:
+            if row[9] == level:
+                total += int(row[column])
+                views += int(row[1])
+        try:
+            percent = total/views * 100
+        except ZeroDivisionError:
+            percent = 0
+        return percent
+    
+    engaged_dev = summary_strand(10, 'engaged')
+    engaged_pro = summary_strand(11, 'engaged')
+    engaged_phy = summary_strand(12, 'engaged')
+    engaged_mak = summary_strand(13, 'engaged')
+    engaged_com = summary_strand(14, 'engaged')
+    completed_dev = summary_strand(10, 'completed')
+    completed_pro = summary_strand(11, 'completed')
+    completed_phy = summary_strand(12, 'completed')
+    completed_mak = summary_strand(13, 'completed')
+    completed_com = summary_strand(14, 'completed')
+
+    engaged_cre = summary_level('creator', 'engaged')
+    engaged_bui = summary_level('builder', 'engaged')
+    engaged_dev = summary_level('developer', 'engaged')
+    engaged_mak = summary_level('maker', 'engaged')
+    completed_cre = summary_level('creator', 'completed')
+    completed_bui = summary_level('builder', 'completed')
+    completed_dev = summary_level('developer', 'completed')
+    completed_mak = summary_level('maker', 'completed')
+
     ## reverse each tuple and flatten
     top_views = [j for i in top_three_views for j in reversed(i)]
     top_engaged = [j for i in top_three_engaged for j in reversed(i)]
@@ -322,11 +382,15 @@ def compose_summary(processed_data):
             del(row[1:])
             row.append(learning_hours)
             row.extend(top_views + top_engaged + top_complete)
+            row.extend([engaged_dev, engaged_pro,  engaged_phy, engaged_mak, engaged_com])
+            row.extend([engaged_cre, engaged_bui, engaged_dev, engaged_mak])
+            row.extend([completed_dev, completed_pro,  completed_phy, completed_mak, completed_com])
+            row.extend([completed_cre, completed_bui, completed_dev, completed_mak])
     return past_data
     
 
 ##Fetch live projects
-#projects = fetch_projects()
+projects = fetch_projects()
 
 #### Get the API service objects
 analytics, sheets = initialize_api()
@@ -360,7 +424,7 @@ for page in pages:
     except KeyError:
         pass
 
-# meta_details = collect_meta(projects)
+meta_details = collect_meta(projects)
 processed_data = assemble_data(meta_details)
 processed_data, total= calc_totals(processed_data)
 for i in processed_data[1:-2]:
