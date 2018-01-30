@@ -380,6 +380,7 @@ def compose_summary(processed_data):
     for row in past_data:
         if row[0] == MONTH:
             del(row[1:])
+            row.append(processed_data[-2][1])
             row.append(learning_hours)
             row.extend(top_views + top_engaged + top_complete)
             row.extend([engaged_dev, engaged_pro,  engaged_phy, engaged_mak, engaged_com])
