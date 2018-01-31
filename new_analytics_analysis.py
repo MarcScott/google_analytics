@@ -22,7 +22,7 @@ import yaml
 from datetime import datetime
 import calendar
 
-#from dummy_meta import projects, meta_details
+from dummy_meta import projects, meta_details
 
 YEAR = input('Enter the year you are interested in ')
 MONTH = input('Enter the short name of the month ')
@@ -137,13 +137,11 @@ def read_sheets(sheets, range_name):
     return values
 
 
-def write_data(sheets, values, summary):
+def write_data(sheets, values, tab):
     spreadsheetId = '1VdqfhNMM66rwBk7VsDoVWeLQbochGRf4S9BsQqH_9is'
     body = {'value_input_option': 'USER_ENTERED',
-            'data': {'range' : MONTH,
-                     'values' : values},
-            'data': {'range' : 'Summary',
-                     'values' : summary}
+            'data': {'range' : tab,
+                     'values' : values}
             }
 
     result = sheets.spreadsheets().values().batchUpdate(
@@ -310,7 +308,7 @@ def calc_totals(processed_data):
                 '','','','','','','',learning_hours/ projects]
     processed_data.append(totals)
     processed_data.append(averages)
-    return processed_data, total_views
+    return processed_data, total_views, totals
 
 def compose_summary(processed_data):
     top_three_views, top_three_engaged, top_three_complete = find_top_three(processed_data)
@@ -371,7 +369,15 @@ def compose_summary(processed_data):
     completed_bui = summary_level('builder', 'completed')
     completed_dev = summary_level('developer', 'completed')
     completed_mak = summary_level('maker', 'completed')
-
+    total_creator = sum([1 for row in processed_data[1:-2] if row[9] == 'creator'])
+    total_builder = sum([1 for row in processed_data[1:-2] if row[9] == 'builder'])
+    total_developer = sum([1 for row in processed_data[1:-2] if row[9] == 'developer'])
+    total_maker = sum([1 for row in processed_data[1:-2] if row[9] == 'maker'])
+    design = sum([1 for row in processed_data[1:-2] if int(row[10]) > 0])
+    programming = sum([1 for row in processed_data[1:-2] if int(row[11]) > 0])
+    physical = sum([1 for row in processed_data[1:-2] if int(row[12]) > 0])
+    manufacture = sum([1 for row in processed_data[1:-2] if int(row[13]) > 0])
+    community = sum([1 for row in processed_data[1:-2] if int(row[14]) > 0])
     ## reverse each tuple and flatten
     top_views = [j for i in top_three_views for j in reversed(i)]
     top_engaged = [j for i in top_three_engaged for j in reversed(i)]
@@ -381,17 +387,22 @@ def compose_summary(processed_data):
         if row[0] == MONTH:
             del(row[1:])
             row.append(processed_data[-2][1])
+            row.append(processed_data[-2][3])
+            row.append(processed_data[-2][5])
             row.append(learning_hours)
             row.extend(top_views + top_engaged + top_complete)
             row.extend([engaged_dev, engaged_pro,  engaged_phy, engaged_mak, engaged_com])
             row.extend([engaged_cre, engaged_bui, engaged_dev, engaged_mak])
             row.extend([completed_dev, completed_pro,  completed_phy, completed_mak, completed_com])
             row.extend([completed_cre, completed_bui, completed_dev, completed_mak])
+            row.extend([design, programming, physical, manufacture, community])
+            row.extend([total_creator, total_builder, total_developer, total_maker])
+
     return past_data
     
 
 ##Fetch live projects
-projects = fetch_projects()
+#projects = fetch_projects()
 
 #### Get the API service objects
 analytics, sheets = initialize_api()
@@ -425,14 +436,15 @@ for page in pages:
     except KeyError:
         pass
 
-meta_details = collect_meta(projects)
+#meta_details = collect_meta(projects)
 processed_data = assemble_data(meta_details)
-processed_data, total= calc_totals(processed_data)
+processed_data, total_views, totals= calc_totals(processed_data)
 for i in processed_data[1:-2]:
-    total_percent = int(i[1]) / int(total) * 100
+    total_percent = int(i[1]) / int(total_views) * 100
     i[2] = total_percent
 
 summary = compose_summary(processed_data)
 
 
-write_data(sheets, processed_data, summary)
+write_data(sheets, summary, 'Summary')
+write_data(sheets, processed_data, MONTH)
