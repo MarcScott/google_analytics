@@ -22,7 +22,7 @@ import yaml
 from datetime import datetime
 import calendar
 
-from dummy_meta import projects, meta_details
+#from dummy_meta import projects, meta_details
 
 YEAR = input('Enter the year you are interested in ')
 MONTH = input('Enter the short name of the month ')
@@ -152,10 +152,15 @@ def write_data(sheets, values, tab):
 def fetch_projects():
     '''Use firefox to iterate over projects.raspberrypi.org and return the names of all live projects'''
     ## This is an ugly hack until access to the database can be provided
+    #driver = webdriver.Chrome()
     driver = webdriver.Firefox()
     base_url = "https://projects.raspberrypi.org/en/projects?page%5Bnumber%5D="
     all_cards = []
     ## Iterate over first 20 pages on site for future proofing
+    driver.get("https://projects.raspberrypi.org/en/projects")
+    cards = driver.find_elements_by_class_name('c-card')
+    for card in cards:
+        all_cards.append(card.get_attribute('innerHTML'))
     for i in range(1,20): 
         driver.get("https://projects.raspberrypi.org/en/projects?page%5Bnumber%5D="+str(i))
         cards = driver.find_elements_by_class_name('c-card')
@@ -182,6 +187,7 @@ def get_meta(repo):
     try:
         curriculum = meta_dict['curriculum'].split()
         curriculum = [curriculum[0][:-1], curriculum[1][-2], curriculum[2][-2], curriculum[3][-2], curriculum[4][-2], curriculum[5][-1]]
+        print(curriculum)
     except:
         print(repo, 'is missing Curriculum data')
         curriculum = ['None Provided','0','0','0','0', '0']
@@ -361,18 +367,18 @@ def compose_summary(processed_data):
     completed_mak = summary_strand(13, 'completed')
     completed_com = summary_strand(14, 'completed')
 
-    engaged_cre = summary_level('creator', 'engaged')
-    engaged_bui = summary_level('builder', 'engaged')
-    engaged_dev = summary_level('developer', 'engaged')
-    engaged_mak = summary_level('maker', 'engaged')
-    completed_cre = summary_level('creator', 'completed')
-    completed_bui = summary_level('builder', 'completed')
-    completed_dev = summary_level('developer', 'completed')
-    completed_mak = summary_level('maker', 'completed')
-    total_creator = sum([1 for row in processed_data[1:-2] if row[9] == 'creator'])
-    total_builder = sum([1 for row in processed_data[1:-2] if row[9] == 'builder'])
-    total_developer = sum([1 for row in processed_data[1:-2] if row[9] == 'developer'])
-    total_maker = sum([1 for row in processed_data[1:-2] if row[9] == 'maker'])
+    engaged_cre = summary_level('1', 'engaged')
+    engaged_bui = summary_level('2', 'engaged')
+    engaged_dev = summary_level('3', 'engaged')
+    engaged_mak = summary_level('4', 'engaged')
+    completed_cre = summary_level('1', 'completed')
+    completed_bui = summary_level('2', 'completed')
+    completed_dev = summary_level('3', 'completed')
+    completed_mak = summary_level('4', 'completed')
+    total_creator = sum([1 for row in processed_data[1:-2] if row[9] == '1'])
+    total_builder = sum([1 for row in processed_data[1:-2] if row[9] == '2'])
+    total_developer = sum([1 for row in processed_data[1:-2] if row[9] == '3'])
+    total_maker = sum([1 for row in processed_data[1:-2] if row[9] == '4'])
     design = sum([1 for row in processed_data[1:-2] if int(row[10]) > 0])
     programming = sum([1 for row in processed_data[1:-2] if int(row[11]) > 0])
     physical = sum([1 for row in processed_data[1:-2] if int(row[12]) > 0])
@@ -402,7 +408,7 @@ def compose_summary(processed_data):
     
 
 ##Fetch live projects
-#projects = fetch_projects()
+projects = fetch_projects()
 
 #### Get the API service objects
 analytics, sheets = initialize_api()
@@ -436,7 +442,7 @@ for page in pages:
     except KeyError:
         pass
 
-#meta_details = collect_meta(projects)
+meta_details = collect_meta(projects)
 processed_data = assemble_data(meta_details)
 processed_data, total_views, totals= calc_totals(processed_data)
 for i in processed_data[1:-2]:
