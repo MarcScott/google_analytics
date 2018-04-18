@@ -154,7 +154,8 @@ def read_sheets(sheets, range_name):
     return values
 
 
-def write_data(sheets, values, range_name):
+def write_data(sheets, values, end):
+    range_name = calendar.month_name[end.month][0:3]
     '''Write to a specific range and tab, with values represented by a 2D list'''
     spreadsheetId = '1VdqfhNMM66rwBk7VsDoVWeLQbochGRf4S9BsQqH_9is'
     body = {'value_input_option': 'USER_ENTERED',
@@ -199,8 +200,7 @@ def process_meta():
             projects[repo] = meta_dict
     return projects
     
-def process_analytics():
-    start_date, end_date = fetch_date_range()
+def process_analytics(start_date, end_date):
     analytics = initialize_analytics_api()
     analytics_data = get_analytics_report(analytics, start_date, end_date)
     parent_pages = analytics_data['reports'][0]['data']['rows']
@@ -217,7 +217,9 @@ def process_analytics():
     for page in child_pages:
         ## Remove slashes from name and number
         page_name = page['dimensions'][1][1:-1]
-        page_number = page['dimensions'][2][1:]
+        ## Get the page number if it's not 1, so not to overwrite parent
+        if page['dimensions'][2][1:] != '1':
+            page_number = page['dimensions'][2][1:]
         page_metrics = page['metrics'][0]['values']
         ## Add child pages data to dictionary
         if page_name in all_pages_dict.keys():
@@ -226,9 +228,9 @@ def process_analytics():
     return all_pages_dict
 
 
-def compile_meta_analytics():
+def compile_meta_analytics(projects_analytics):
     print('fetching analytics')
-    projects_analytics = process_analytics()
+
     print('fetching meta data')
     projects_meta = process_meta()
     print('processing')
@@ -254,8 +256,8 @@ def refine_curriculum(raw_curriculum):
         curriculum[strand[0]] = strand[-1]
     return curriculum
     
-def create_data_list():
-    projects = compile_meta_analytics()
+def create_data_list(projects):
+
 
     ## Titles
     values = [['Name',
@@ -489,9 +491,12 @@ def compose_summary(processed_data):
 
     return past_data
 
-processed_data = create_data_list()
+start, end = fetch_date_range()
+projects_analytics = process_analytics(start, end)
+projects = compile_meta_analytics(projects_analytics)
+processed_data = create_data_list(projects)
 sheets = initialize_sheets_api()
-write_data(sheets, processed_data, 'Dec')
+write_data(sheets, processed_data, end)
 
 
 
