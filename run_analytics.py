@@ -12,26 +12,14 @@ from oauth2client import file
 from oauth2client import tools
 from pprint import pprint
 
-from selenium import webdriver
-from bs4 import BeautifulSoup
-
 from github import Github
+from github.GithubException import UnknownObjectException
 import json
 import yaml
 
 from datetime import datetime
+
 import calendar
-
-#from dummy_meta import projects, meta_details
-
-YEAR = input('Enter the year you are interested in ')
-MONTH = input('Enter the short name of the month ')
-START_DATE = datetime.strptime(MONTH + ' ' + YEAR, '%b %Y')
-DAYS_IN_MONTH = calendar.monthrange(START_DATE.year, START_DATE.month)
-END_DATE = datetime.strptime(str(DAYS_IN_MONTH[1]) + ' ' + MONTH + ' ' + YEAR , '%d %b %Y')
-
-
-print('Processing analytics from', START_DATE.strftime('%Y-%m-%d'), 'to', END_DATE.strftime('%Y-%m-%d'))
 
 ## GOOGLE APIs being used
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly', 'https://www.googleapis.com/auth/spreadsheets']
@@ -45,16 +33,28 @@ SHEETS_DISCOVERY_URI = ('https://sheets.googleapis.com/$discovery/rest?'
 KEY_FILE_LOCATION = 'mycreds.p12'
 SERVICE_ACCOUNT_EMAIL = 'id-018-analytics@ancient-sandbox-191211.iam.gserviceaccount.com'
 
-## GitHub integration - token is stored in form key: token in github.yml
+
+## Load GitHub credentials - token is stored in form key: token in github.yml
 with open('github.yml', 'r') as f:
     auth = yaml.load(f.read())
 git = Github(auth['key'])
 org = git.get_organization('raspberrypilearning')
 
 
-def initialize_api():
-    """Initializes an analyticsreporting service object.
+def fetch_date_range():
+    '''Fetch year and month for analytics and get the YYYY,MM,DD date range
+    Return a start and end date for the fiven month'''
+    year = input('Enter the year you are interested in ')
+    month = input('Enter the short name of the month ')
+    start_date = datetime.strptime(month + ' ' + year, '%b %Y')
+    days_in_month = calendar.monthrange(start_date.year, start_date.month)
+    end_date = datetime.strptime(str(days_in_month[1]) + ' ' + month + ' ' + year , '%d %b %Y')
+    print('Processing analytics from', start_date.strftime('%Y-%m-%d'), 'to', end_date.strftime('%Y-%m-%d'))
+    return start_date, end_date
 
+
+def initialize_analytics_api():
+    """Initializes an analyticsreporting and sheets service object.
     Returns:
       analytics an authorized analyticsreporting service object.
     """
@@ -66,16 +66,32 @@ def initialize_api():
 
     # Build the service object.
     analytics = build('analytics', 'v4', http=http, discoveryServiceUrl=ANALYTICS_DISCOVERY_URI)
+
+
+    return analytics
+
+def initialize_sheets_api():
+    """Initializes an analyticsreporting and sheets service object.
+    Returns:
+      analytics an authorized analyticsreporting service object.
+    """
+
+    credentials = ServiceAccountCredentials.from_p12_keyfile(
+      SERVICE_ACCOUNT_EMAIL, KEY_FILE_LOCATION, scopes=SCOPES)
+
+    http = credentials.authorize(httplib2.Http())
+
+    # Build the service object.
     sheets = build('sheets', 'v4', http=http, discoveryServiceUrl=SHEETS_DISCOVERY_URI)
 
-    return analytics, sheets
+    return sheets
 
 
-def get_analytics_report(analytics):
+def get_analytics_report(analytics, start_date, end_date):
     ## View ID for Analytics - https://ga-dev-tools.appspot.com/query-explorer/
     VIEW_ID = '157729614'
-    start_date = START_DATE.strftime('%Y-%m-%d')
-    end_date = END_DATE.strftime('%Y-%m-%d')
+    start = start_date.strftime('%Y-%m-%d')
+    end = end_date.strftime('%Y-%m-%d')
     # Use the Analytics Service Object to query the Analytics Reporting API V4.
     return analytics.reports().batchGet(
         body={
@@ -84,7 +100,7 @@ def get_analytics_report(analytics):
                 {
                     'viewId': VIEW_ID,
                     'pageSize': 10000,
-                    'dateRanges': [{'startDate': start_date, 'endDate': end_date}],
+                    'dateRanges': [{'startDate': start, 'endDate': end}],
                     'metrics': [{'expression': 'ga:pageviews'},
                                 {'expression': 'ga:uniquePageviews'},
                                 {'expression': 'ga:avgTimeOnPage'},],
@@ -94,7 +110,7 @@ def get_analytics_report(analytics):
                     ],
                     "orderBys":[{
                         "fieldName": "ga:uniquePageviews",
-                        "sortOrder": "ASCENDING"}],
+                        "sortOrder": "DESCENDING"}],
                     'metricFilterClauses':[{
                         'filters':[
                             {'metricName': 'ga:pageviews',
@@ -106,7 +122,7 @@ def get_analytics_report(analytics):
                 {
                     'viewId': VIEW_ID,
                     'pageSize': 10000,
-                    'dateRanges': [{'startDate': start_date, 'endDate': end_date}],
+                    'dateRanges': [{'startDate': start, 'endDate': end}],
                     'metrics': [{'expression': 'ga:pageviews'},
                                 {'expression': 'ga:uniquePageviews'},
                                 {'expression': 'ga:avgTimeOnPage'},],
@@ -116,7 +132,7 @@ def get_analytics_report(analytics):
                     ],
                     "orderBys":[{
                         "fieldName": "ga:uniquePageviews",
-                        "sortOrder": "ASCENDING"}],
+                        "sortOrder": "DESCENDING"}],
                                         'metricFilterClauses':[{
                         'filters':[
                             {'metricName': 'ga:pageviews',
@@ -128,6 +144,7 @@ def get_analytics_report(analytics):
 
 
 def read_sheets(sheets, range_name):
+    '''Read a given Google sheet and name and return the values'''
     spreadsheetId = '1VdqfhNMM66rwBk7VsDoVWeLQbochGRf4S9BsQqH_9is'
     rangeName = range_name
     result = sheets.spreadsheets().values().get(
@@ -137,10 +154,11 @@ def read_sheets(sheets, range_name):
     return values
 
 
-def write_data(sheets, values, tab):
+def write_data(sheets, values, range_name):
+    '''Write to a specific range and tab, with values represented by a 2D list'''
     spreadsheetId = '1VdqfhNMM66rwBk7VsDoVWeLQbochGRf4S9BsQqH_9is'
     body = {'value_input_option': 'USER_ENTERED',
-            'data': {'range' : tab,
+            'data': {'range' : range_name,
                      'values' : values}
             }
 
@@ -149,70 +167,97 @@ def write_data(sheets, values, tab):
        body=body).execute() 
 
 
-def fetch_projects():
-    '''Use firefox to iterate over projects.raspberrypi.org and return the names of all live projects'''
-    ## This is an ugly hack until access to the database can be provided
-    #driver = webdriver.Chrome()
-    driver = webdriver.Firefox()
-    base_url = "https://projects.raspberrypi.org/en/projects?page%5Bnumber%5D="
-    all_cards = []
-    ## Iterate over first 20 pages on site for future proofing
-    driver.get("https://projects.raspberrypi.org/en/projects")
-    cards = driver.find_elements_by_class_name('c-card')
-    for card in cards:
-        all_cards.append(card.get_attribute('innerHTML'))
-    for i in range(1,20): 
-        driver.get("https://projects.raspberrypi.org/en/projects?page%5Bnumber%5D="+str(i))
-        cards = driver.find_elements_by_class_name('c-card')
-        for card in cards:
-            all_cards.append(card.get_attribute('innerHTML'))
-    driver.close()
-
-    ## Get the html and look at all the image names, to find project names
-    html = ' '.join(all_cards)
-    soup = BeautifulSoup(html, 'html.parser')
-    images = soup.find_all('img')
-    projects = []
-    for image in images:
-        projects.append(str(image).split('/')[4])
-    return projects
+def fetch_repo_list():
+    '''Fetch and return a list of all repos in the organisation'''
+    repos = org.get_repos()
+    return [repo.name for repo in repos] ##temp reduce number of repos
 
 
 def get_meta(repo):
-    '''use GH API to fetch curriculum details from project meta'''
+    '''For a given repo
+    return the data in the meta.yml in the form a dictionary'''
     repo = org.get_repo(repo)
-    file_contents = repo.get_file_contents('en/meta.yml')
-    meta_text = file_contents.decoded_content.decode('utf-8')
-    meta_dict = yaml.load(meta_text)
-    try:
-        curriculum = meta_dict['curriculum'].split()
-        curriculum = [curriculum[0][:-1], curriculum[1][-2], curriculum[2][-2], curriculum[3][-2], curriculum[4][-2], curriculum[5][-1]]
-        print(curriculum)
-    except:
-        print(repo, 'is missing Curriculum data')
-        curriculum = ['None Provided','0','0','0','0', '0']
-    try:
-        duration = meta_dict['duration']
-    except KeyError:
-        print(repo, 'is missing duration data')
-        duration = 0
-    return curriculum, duration
-
-def collect_meta(projects):
-    meta_details = {project : get_meta(project) for project in projects}
-    return meta_details
-
-                    
-def assemble_data(meta_details):
-    '''Assemble data for each resource, and handle past queries where resources are not in analytics'''
-    resources = {}
-    for resource in projects:
+    if not repo.archived:
         try:
-            resources[resource] = all_pages_dict[resource]
-        except KeyError:
-            print(resource, 'not found in this date range')
+            file_contents = repo.get_file_contents('en/meta.yml')
+            meta_text = file_contents.decoded_content.decode('utf-8')
+            meta_dict = yaml.load(meta_text)
+        except UnknownObjectException:
+            meta_dict = None
+    else:
+        meta_dict = None
+    return meta_dict
 
-    ##Spreadsheet titles
+
+def process_meta():
+    '''Return a dictionary with repos as keys and meta dictionary as value'''
+    repos = fetch_repo_list()
+    projects = {}
+    for repo in repos:
+        meta_dict = get_meta(repo)
+        if meta_dict:
+            projects[repo] = meta_dict
+    return projects
+    
+def process_analytics():
+    start_date, end_date = fetch_date_range()
+    analytics = initialize_analytics_api()
+    analytics_data = get_analytics_report(analytics, start_date, end_date)
+    parent_pages = analytics_data['reports'][0]['data']['rows']
+    child_pages = analytics_data['reports'][1]['data']['rows']
+
+    ## Initialise the dictionary of projects
+    # all_pages_dict = {}
+    # for page in parent_pages:
+    #     if page['dimensions'][1][-1] != '/' and page['dimensions'][1][-1] not in all_pages_dict:
+    #         all_pages_dict[page['dimensions'][1][1:]] = {'1': page['metrics'][0]['values']}
+                           
+    all_pages_dict = {page['dimensions'][1][1:] : {'1': page['metrics'][0]['values']} for page in parent_pages if page['dimensions'][1][-1] != '/'}
+
+    for page in child_pages:
+        ## Remove slashes from name and number
+        page_name = page['dimensions'][1][1:-1]
+        page_number = page['dimensions'][2][1:]
+        page_metrics = page['metrics'][0]['values']
+        ## Add child pages data to dictionary
+        if page_name in all_pages_dict.keys():
+            all_pages_dict[page_name][page_number] = page_metrics
+    
+    return all_pages_dict
+
+
+def compile_meta_analytics():
+    print('fetching analytics')
+    projects_analytics = process_analytics()
+    print('fetching meta data')
+    projects_meta = process_meta()
+    print('processing')
+    ## Remove projects with no site_areas tag
+    learning_projects = {project:meta for project, meta in projects_meta.items() if 'site_areas' in meta}
+    ## Remove projects where site areas is not "projects"
+    projects = {project:meta for project, meta in learning_projects.items() if meta['site_areas'] == 'projects'}
+    ## Add the analytics data for each project
+    for project in projects.keys():
+        if project in projects_analytics.keys():
+            projects[project]['analytics'] = projects_analytics[project]
+    return projects
+
+
+def refine_curriculum(raw_curriculum):
+    curriculum = {}
+    raw_curriculum = raw_curriculum.replace(" ", "").split(",")
+    ## Get the oveerall level
+    curriculum['level'] = raw_curriculum.pop(0)
+    ## Get the strand levels
+    for strands in raw_curriculum:
+        strand = strands.split("-")
+        curriculum[strand[0]] = strand[-1]
+    return curriculum
+    
+def create_data_list():
+    projects = compile_meta_analytics()
+
+    ## Titles
     values = [['Name',
                'Viewed', 'Views as % Total',
                'Engaged','Enagaged as % Views',
@@ -221,46 +266,84 @@ def assemble_data(meta_details):
                'Curriculum Level', 'Design', 'Programming', 'Phys-comp', 'Manufacture', 'Community',
                'duration',
                'learning_hours']]
-    
-    for resource in resources:
-        resource_data = []
-        resource_data.append(resource)
-        pages = [resources[resource][str(i)][1] if str(i) in resources[resource].keys() else 0 for i in range(31)]
-        ## Get value of those that clicked the tile
-        viewed = pages[0]
-        viewed_percent = ''
-        resource_data.append(viewed)
-        resource_data.append(viewed_percent)
-        ## Get value of those that progressed through to step 3
-        engaged = pages[3]
-        engaged_percent = int(engaged)/int(viewed) * 100
-        resource_data.append(engaged)
-        resource_data.append(engaged_percent)
-        ## Get last non-zero value of page views for those that made it to end
-        completed = [view for view in pages if view !=0][-1]
-        completed_percent = int(completed)/int(viewed) * 100
-        resource_data.append(completed)
-        resource_data.append(completed_percent)
-        ## Get printed and complete
-        resource_data += [resources[resource]['complete'][1] if 'complete' in resources[resource].keys() else '0']
-        resource_data += [resources[resource]['print'][1] if 'print' in resources[resource].keys() else '0']
-        ## Add curriculum from meta
-        resource_data += meta_details[resource][0]
-        ## add duration from meta
-        resource_data.append(meta_details[resource][1])
-        ## calc and add learning hours
-        if meta_details[resource][1] == 1:
-            learning_hours = 0.25 * int(completed)
-        elif meta_details[resource][1] == 2:
-            learning_hours = 1 * int(completed)
-        elif meta_details[resource][1] == 3:
-            learning_hours = 2 * int(completed)
-        else:
-            learning_hours = 0
-        resource_data.append(learning_hours)
-        values.append(resource_data)
 
+    ## Find total project views
+    total_views = 0
+    try:
+        for project in projects.keys():
+            total_views += int(projects[project]['analytics']['1'][1])
+    except KeyError:
+        print('No analytics available for', project, 'for this month')
+
+    ## Assemble values for spreadsheet
+    
+    for project in projects.keys():
+        try:
+            viewed_first_page = int(projects[project]['analytics']['1'][1])
+            views_as_percentage = viewed_first_page / total_views * 100
+            engaged = int(projects[project]['analytics']['3'][1])
+            engaged_as_percentage = engaged / viewed_first_page * 100
+            ## Find last page
+            pages = []
+            for page in projects[project]['analytics'].keys():
+                try:
+                    pages.append(int(page))
+                except ValueError:
+                    pass
+            final = str(max(pages))
+
+            complete = int(projects[project]['analytics'][final][1])
+            complete_as_percentage = complete / viewed_first_page * 100
+
+            try:
+                final = int(projects[project]['analytics']['complete'][1])
+            except KeyError:
+                final = 0
+
+            try:
+                printed = int(projects[project]['analytics']['print'][1])
+            except KeyError:
+                printed = 0
+
+            curriculum = refine_curriculum(projects[project]['curriculum'])
+            level = int(curriculum['level'])
+            design =int(curriculum['design'])
+            programming = int(curriculum['programming'])
+            phys = int(curriculum['phys'])
+            manufacture = int(curriculum['manufacture'])
+            community =  int(curriculum['community'])
+
+            duration = int(projects[project]['duration'])
+            if duration == 1:
+                learning_hours = 0.25 * complete
+            elif duration == 2:
+                learning_hours = 1 * complete
+            elif duration == 3:
+                learning_hours = 2 * complete
+            else:
+                learning_hours = 0
+
+            values.append([project,
+                           viewed_first_page,
+                           views_as_percentage,
+                           engaged,
+                           engaged_as_percentage,
+                           complete,
+                           complete_as_percentage,
+                           final,
+                           printed,
+                           level,
+                           design,
+                           programming,
+                           phys,
+                           manufacture,
+                           community,
+                           duration,
+                           learning_hours])
+        except KeyError:
+            pass
     return values
+
 
 def find_top_three(processed_data):
     projects = [project[0] for project in processed_data[1:-2]]
@@ -405,52 +488,59 @@ def compose_summary(processed_data):
             row.extend([total_creator, total_builder, total_developer, total_maker])
 
     return past_data
-    
 
-##Fetch live projects
-projects = fetch_projects()
+processed_data = create_data_list()
+sheets = initialize_sheets_api()
+write_data(sheets, processed_data, 'Dec')
 
-#### Get the API service objects
-analytics, sheets = initialize_api()
-response = get_analytics_report(analytics)
 
-## Root project pages showing hits to first page and hits to all sub pages
-root_pages = response['reports'][0]['data']['rows']
 
-## Initialise the dictionary of projects
-all_pages_dict = {page['dimensions'][1][1:-1] : {'0': page['metrics'][0]['values']} for page in root_pages if page['dimensions'][1][-1] == '/'}
 
-## add in the first page that has a trailing `/` - can remove this later if fixed in Analytics
-for page in root_pages:
-    if page['dimensions'][1][-1] != '/':
-        page_name = page['dimensions'][1][1:]
-        try:
-            all_pages_dict[page_name]['1'] = page['metrics'][0]['values']
-        except KeyError:
-            pass
+
+# ##Fetch live projects
+# projects = fetch_projects()
+
+# #### Get the API service objects
+# analytics, sheets = initialize_api()
+# response = get_analytics_report(analytics)
+
+# ## Root project pages showing hits to first page and hits to all sub pages
+# root_pages = response['reports'][0]['data']['rows']
+
+# ## Initialise the dictionary of projects
+# all_pages_dict = {page['dimensions'][1][1:-1] : {'0': page['metrics'][0]['values']} for page in root_pages if page['dimensions'][1][-1] == '/'}
+
+# ## add in the first page that has a trailing `/` - can remove this later if fixed in Analytics
+# for page in root_pages:
+#     if page['dimensions'][1][-1] != '/':
+#         page_name = page['dimensions'][1][1:]
+#         try:
+#             all_pages_dict[page_name]['1'] = page['metrics'][0]['values']
+#         except KeyError:
+#             pass
                                                          
         
-## Drill down to project pages
-pages = response['reports'][1]['data']['rows']
+# ## Drill down to project pages
+# pages = response['reports'][1]['data']['rows']
 
-## Add additional pages
-for page in pages:
-    try:
-        page_name = page['dimensions'][1][1:-1]
-        page_number = page['dimensions'][2][1:]
-        all_pages_dict[page_name][page_number] = page['metrics'][0]['values']
-    except KeyError:
-        pass
+# ## Add additional pages
+# for page in pages:
+#     try:
+#         page_name = page['dimensions'][1][1:-1]
+#         page_number = page['dimensions'][2][1:]
+#         all_pages_dict[page_name][page_number] = page['metrics'][0]['values']
+#     except KeyError:
+#         pass
 
-meta_details = collect_meta(projects)
-processed_data = assemble_data(meta_details)
-processed_data, total_views, totals= calc_totals(processed_data)
-for i in processed_data[1:-2]:
-    total_percent = int(i[1]) / int(total_views) * 100
-    i[2] = total_percent
+# meta_details = collect_meta(projects)
+# processed_data = assemble_data(meta_details)
+# processed_data, total_views, totals= calc_totals(processed_data)
+# for i in processed_data[1:-2]:
+#     total_percent = int(i[1]) / int(total_views) * 100
+#     i[2] = total_percent
 
-summary = compose_summary(processed_data)
+# summary = compose_summary(processed_data)
 
 
-write_data(sheets, summary, 'Summary')
-write_data(sheets, processed_data, MONTH)
+# write_data(sheets, summary, 'Summary')
+
