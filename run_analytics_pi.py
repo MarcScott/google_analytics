@@ -21,8 +21,6 @@ from datetime import datetime
 
 import calendar
 
-MONTH = ''
-
 ## GOOGLE APIs being used
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly', 'https://www.googleapis.com/auth/spreadsheets']
 
@@ -44,12 +42,10 @@ org = git.get_organization('raspberrypilearning')
 
 
 def fetch_date_range():
-    global MONTH
     '''Fetch year and month for analytics and get the YYYY,MM,DD date range
     Return a start and end date for the fiven month'''
     year = input('Enter the year you are interested in ')
     month = input('Enter the short name of the month ')
-    MONTH = month
     start_date = datetime.strptime(month + ' ' + year, '%b %Y')
     days_in_month = calendar.monthrange(start_date.year, start_date.month)
     end_date = datetime.strptime(str(days_in_month[1]) + ' ' + month + ' ' + year , '%d %b %Y')
@@ -159,10 +155,7 @@ def read_sheets(sheets, range_name):
 
 
 def write_data(sheets, values, end):
-    if type(end) == str:
-        range_name = end
-    else:
-        range_name = calendar.month_name[end.month][0:3]
+    range_name = calendar.month_name[end.month][0:3]
     '''Write to a specific range and tab, with values represented by a 2D list'''
     spreadsheetId = '1VdqfhNMM66rwBk7VsDoVWeLQbochGRf4S9BsQqH_9is'
     body = {'value_input_option': 'USER_ENTERED',
@@ -278,26 +271,20 @@ def create_data_list(projects):
 
     ## Find total project views
     total_views = 0
-    for project in projects.keys():
-        try:
+    try:
+        for project in projects.keys():
             total_views += int(projects[project]['analytics']['1'][1])
-        except KeyError:
-            print('No analytics available for', project, 'for this month')
+    except KeyError:
+        print('No analytics available for', project, 'for this month')
 
     ## Assemble values for spreadsheet
     
     for project in projects.keys():
         try:
             viewed_first_page = int(projects[project]['analytics']['1'][1])
-            try:
-                views_as_percentage = viewed_first_page / total_views * 100
-            except ZeroDivisionError:
-                views_as_percentage = 0
+            views_as_percentage = viewed_first_page / total_views * 100
             engaged = int(projects[project]['analytics']['3'][1])
-            try:
-                engaged_as_percentage = engaged / viewed_first_page * 100
-            except ZeroDivisionError:
-                engaged_as_percentage = 0
+            engaged_as_percentage = engaged / viewed_first_page * 100
             ## Find last page
             pages = []
             for page in projects[project]['analytics'].keys():
@@ -308,10 +295,8 @@ def create_data_list(projects):
             final = str(max(pages))
 
             complete = int(projects[project]['analytics'][final][1])
-            try:
-                complete_as_percentage = complete / viewed_first_page * 100
-            except ZeroDivisionError:
-                complete_as_percentage = 0
+            complete_as_percentage = complete / viewed_first_page * 100
+
             try:
                 final = int(projects[project]['analytics']['complete'][1])
             except KeyError:
@@ -358,7 +343,7 @@ def create_data_list(projects):
                            duration,
                            learning_hours])
         except KeyError:
-            print(project)
+            pass
     return values
 
 
@@ -456,29 +441,29 @@ def compose_summary(processed_data):
             percent = 0
         return percent
     
-    engaged_des = summary_strand(10, 'engaged')
+    engaged_dev = summary_strand(10, 'engaged')
     engaged_pro = summary_strand(11, 'engaged')
     engaged_phy = summary_strand(12, 'engaged')
     engaged_mak = summary_strand(13, 'engaged')
     engaged_com = summary_strand(14, 'engaged')
-    completed_des = summary_strand(10, 'completed')
+    completed_dev = summary_strand(10, 'completed')
     completed_pro = summary_strand(11, 'completed')
     completed_phy = summary_strand(12, 'completed')
     completed_mak = summary_strand(13, 'completed')
     completed_com = summary_strand(14, 'completed')
 
-    engaged_cre = summary_level(1, 'engaged')
-    engaged_bui = summary_level(2, 'engaged')
-    engaged_dev = summary_level(3, 'engaged')
-    engaged_mak = summary_level(4, 'engaged')
-    completed_cre = summary_level(1, 'completed')
-    completed_bui = summary_level(2, 'completed')
-    completed_dev = summary_level(3, 'completed')
-    completed_mak = summary_level(4, 'completed')
-    total_creator = sum([1 for row in processed_data[1:-2] if row[9] == 1])
-    total_builder = sum([1 for row in processed_data[1:-2] if row[9] == 2])
-    total_developer = sum([1 for row in processed_data[1:-2] if row[9] == 3])
-    total_maker = sum([1 for row in processed_data[1:-2] if row[9] == 4])
+    engaged_cre = summary_level('1', 'engaged')
+    engaged_bui = summary_level('2', 'engaged')
+    engaged_dev = summary_level('3', 'engaged')
+    engaged_mak = summary_level('4', 'engaged')
+    completed_cre = summary_level('1', 'completed')
+    completed_bui = summary_level('2', 'completed')
+    completed_dev = summary_level('3', 'completed')
+    completed_mak = summary_level('4', 'completed')
+    total_creator = sum([1 for row in processed_data[1:-2] if row[9] == '1'])
+    total_builder = sum([1 for row in processed_data[1:-2] if row[9] == '2'])
+    total_developer = sum([1 for row in processed_data[1:-2] if row[9] == '3'])
+    total_maker = sum([1 for row in processed_data[1:-2] if row[9] == '4'])
     design = sum([1 for row in processed_data[1:-2] if int(row[10]) > 0])
     programming = sum([1 for row in processed_data[1:-2] if int(row[11]) > 0])
     physical = sum([1 for row in processed_data[1:-2] if int(row[12]) > 0])
@@ -497,9 +482,9 @@ def compose_summary(processed_data):
             row.append(processed_data[-2][5])
             row.append(learning_hours)
             row.extend(top_views + top_engaged + top_complete)
-            row.extend([engaged_des, engaged_pro,  engaged_phy, engaged_mak, engaged_com])
+            row.extend([engaged_dev, engaged_pro,  engaged_phy, engaged_mak, engaged_com])
             row.extend([engaged_cre, engaged_bui, engaged_dev, engaged_mak])
-            row.extend([completed_des, completed_pro,  completed_phy, completed_mak, completed_com])
+            row.extend([completed_dev, completed_pro,  completed_phy, completed_mak, completed_com])
             row.extend([completed_cre, completed_bui, completed_dev, completed_mak])
             row.extend([design, programming, physical, manufacture, community])
             row.extend([total_creator, total_builder, total_developer, total_maker])
@@ -554,13 +539,13 @@ write_data(sheets, processed_data, end)
 
 # meta_details = collect_meta(projects)
 # processed_data = assemble_data(meta_details)
-processed_data, total_views, totals= calc_totals(processed_data)
-for i in processed_data[1:-2]:
-    total_percent = int(i[1]) / int(total_views) * 100
-    i[2] = total_percent
+# processed_data, total_views, totals= calc_totals(processed_data)
+# for i in processed_data[1:-2]:
+#     total_percent = int(i[1]) / int(total_views) * 100
+#     i[2] = total_percent
 
-summary = compose_summary(processed_data)
+# summary = compose_summary(processed_data)
 
 
-write_data(sheets, summary, 'Summary')
+# write_data(sheets, summary, 'Summary')
 
