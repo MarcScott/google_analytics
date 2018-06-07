@@ -9,9 +9,8 @@ stdenv.mkDerivation {
   buildInputs = [
     # these packages are required for virtualenv and pip to work:
     #
-    python36Full
+    python3
     python36Packages.virtualenv
-    python36Packages.pip
 
     # the following packages are related to the dependencies of your python
     # project.
