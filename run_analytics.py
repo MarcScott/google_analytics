@@ -184,6 +184,7 @@ def fetch_repo_list():
 def get_meta(repo):
     '''For a given repo
     return the data in the meta.yml in the form a dictionary'''
+    print(repo)
     repo = org.get_repo(repo)
     if not repo.archived:
         try:
@@ -203,6 +204,7 @@ def process_meta():
     projects = {}
     for repo in repos:
         meta_dict = get_meta(repo)
+        print(meta_dict)
         if meta_dict:
             projects[repo] = meta_dict
     return projects
@@ -262,6 +264,8 @@ def refine_curriculum(raw_curriculum):
         strand = strands.split("-")
         curriculum[strand[0]] = strand[-1]
     return curriculum
+
+        
     
 def create_data_list(projects):
 

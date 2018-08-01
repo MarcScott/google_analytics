@@ -21,6 +21,25 @@ from datetime import datetime
 
 import calendar
 
+import csv
+
+with open('/home/mjs/Downloads/data.csv', mode='r') as infile:
+    reader = csv.reader(infile)
+    csv_projects = [row for row in reader]
+
+## Get title keys incase these change in the database in the future
+id_key = csv_projects[0].index('id')
+project_name = csv_projects[0].index('repository_name')
+title = csv_projects[0].index('name')
+duration = csv_projects[0].index('duration')
+version = csv_projects[0].index('version')
+listed = csv_projects[0].index('listed')
+tag_context = csv_projects[0].index('tag_context')
+tag_name = csv_projects[0].index('tag_name')
+
+## Global MONTH
+MONTH = ''
+
 ## GOOGLE APIs being used
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly', 'https://www.googleapis.com/auth/spreadsheets']
 
@@ -42,10 +61,12 @@ org = git.get_organization('raspberrypilearning')
 
 
 def fetch_date_range():
+    global MONTH
     '''Fetch year and month for analytics and get the YYYY,MM,DD date range
     Return a start and end date for the fiven month'''
     year = input('Enter the year you are interested in ')
     month = input('Enter the short name of the month ')
+    MONTH = month
     start_date = datetime.strptime(month + ' ' + year, '%b %Y')
     days_in_month = calendar.monthrange(start_date.year, start_date.month)
     end_date = datetime.strptime(str(days_in_month[1]) + ' ' + month + ' ' + year , '%d %b %Y')
@@ -155,7 +176,10 @@ def read_sheets(sheets, range_name):
 
 
 def write_data(sheets, values, end):
-    range_name = calendar.month_name[end.month][0:3]
+    if type(end) == str:
+        range_name = end
+    else:
+        range_name = calendar.month_name[end.month][0:3]
     '''Write to a specific range and tab, with values represented by a 2D list'''
     spreadsheetId = '1VdqfhNMM66rwBk7VsDoVWeLQbochGRf4S9BsQqH_9is'
     body = {'value_input_option': 'USER_ENTERED',
@@ -167,38 +191,25 @@ def write_data(sheets, values, end):
        spreadsheetId=spreadsheetId,
        body=body).execute() 
 
+def make_projects_dict():
+    seen_before = []
+    projects_dict = {}
+    for project in csv_projects:
+        if project[id_key] not in seen_before:
+            seen_before.append(project[id_key])
+            projects_dict[project[project_name]] = {'title':project[title],
+                                                    'duration':project[duration],
+                                                    'version':project[version],
+                                                    'listed':project[listed],
+                                                    project[tag_context]:[]}
 
-def fetch_repo_list():
-    '''Fetch and return a list of all repos in the organisation'''
-    repos = org.get_repos()
-    return [repo.name for repo in repos] ##temp reduce number of repos
+            projects_dict[project[project_name]][project[tag_context]].append(project[tag_name])
+        elif project[tag_context] in projects_dict[project[project_name]]:
+            projects_dict[project[project_name]][project[tag_context]].append(project[tag_name])
+        else:
+            projects_dict[project[project_name]][project[tag_context]] = [project[tag_name]]
+    return projects_dict
 
-
-def get_meta(repo):
-    '''For a given repo
-    return the data in the meta.yml in the form a dictionary'''
-    repo = org.get_repo(repo)
-    if not repo.archived:
-        try:
-            file_contents = repo.get_file_contents('en/meta.yml')
-            meta_text = file_contents.decoded_content.decode('utf-8')
-            meta_dict = yaml.load(meta_text)
-        except UnknownObjectException:
-            meta_dict = None
-    else:
-        meta_dict = None
-    return meta_dict
-
-
-def process_meta():
-    '''Return a dictionary with repos as keys and meta dictionary as value'''
-    repos = fetch_repo_list()
-    projects = {}
-    for repo in repos:
-        meta_dict = get_meta(repo)
-        if meta_dict:
-            projects[repo] = meta_dict
-    return projects
     
 def process_analytics(start_date, end_date):
     analytics = initialize_analytics_api()
@@ -232,12 +243,12 @@ def compile_meta_analytics(projects_analytics):
     print('fetching analytics')
 
     print('fetching meta data')
-    projects_meta = process_meta()
+    projects_meta = make_projects_dict()
     print('processing')
     ## Remove projects with no site_areas tag
     learning_projects = {project:meta for project, meta in projects_meta.items() if 'site_areas' in meta}
     ## Remove projects where site areas is not "projects"
-    projects = {project:meta for project, meta in learning_projects.items() if meta['site_areas'] == 'projects'}
+    projects = {project:meta for project, meta in learning_projects.items() if meta['site_areas'][0] == 'projects'}
     ## Add the analytics data for each project
     for project in projects.keys():
         if project in projects_analytics.keys():
@@ -247,14 +258,14 @@ def compile_meta_analytics(projects_analytics):
 
 def refine_curriculum(raw_curriculum):
     curriculum = {}
-    raw_curriculum = raw_curriculum.replace(" ", "").split(",")
-    ## Get the oveerall level
-    curriculum['level'] = raw_curriculum.pop(0)
-    ## Get the strand levels
-    for strands in raw_curriculum:
-        strand = strands.split("-")
-        curriculum[strand[0]] = strand[-1]
+    for level in raw_curriculum:
+        try:
+            int(level)
+            curriculum['level'] = int(level)
+        except:
+            curriculum[level[0:-2]] = int(level[-1:])
     return curriculum
+        
     
 def create_data_list(projects):
 
@@ -271,79 +282,90 @@ def create_data_list(projects):
 
     ## Find total project views
     total_views = 0
-    try:
-        for project in projects.keys():
-            total_views += int(projects[project]['analytics']['1'][1])
-    except KeyError:
-        print('No analytics available for', project, 'for this month')
-
-    ## Assemble values for spreadsheet
-    
+    ## List of projects with no analytics data
+    no_analytics = []
     for project in projects.keys():
         try:
-            viewed_first_page = int(projects[project]['analytics']['1'][1])
-            views_as_percentage = viewed_first_page / total_views * 100
-            engaged = int(projects[project]['analytics']['3'][1])
-            engaged_as_percentage = engaged / viewed_first_page * 100
-            ## Find last page
-            pages = []
-            for page in projects[project]['analytics'].keys():
+            total_views += int(projects[project]['analytics']['1'][1])
+        except KeyError:
+            print('No analytics available for', project, 'for this month')
+            no_analytics.append(project)
+    ##Delete projects with no analytics data
+    for project in no_analytics:
+        del(projects[project])
+
+    ## Assemble values for spreadsheet
+
+    
+    for project in projects.keys():
+
+        viewed_first_page = int(projects[project]['analytics']['1'][1])
+        views_as_percentage = viewed_first_page / total_views * 100
+        engaged = int(projects[project]['analytics']['3'][1])
+        engaged_as_percentage = engaged / viewed_first_page * 100
+        
+        ## Find last page
+        pages = []
+        for page in projects[project]['analytics'].keys():
+            if page != 'complete' and page != 'print':
+#                print(page)
                 try:
                     pages.append(int(page))
                 except ValueError:
-                    pass
-            final = str(max(pages))
+                    print('ODD PAGE HERE')
 
-            complete = int(projects[project]['analytics'][final][1])
-            complete_as_percentage = complete / viewed_first_page * 100
 
-            try:
-                final = int(projects[project]['analytics']['complete'][1])
-            except KeyError:
-                final = 0
+        final = str(max(pages))
 
-            try:
-                printed = int(projects[project]['analytics']['print'][1])
-            except KeyError:
-                printed = 0
-
-            curriculum = refine_curriculum(projects[project]['curriculum'])
-            level = int(curriculum['level'])
-            design =int(curriculum['design'])
-            programming = int(curriculum['programming'])
-            phys = int(curriculum['phys'])
-            manufacture = int(curriculum['manufacture'])
-            community =  int(curriculum['community'])
-
-            duration = int(projects[project]['duration'])
-            if duration == 1:
-                learning_hours = 0.25 * complete
-            elif duration == 2:
-                learning_hours = 1 * complete
-            elif duration == 3:
-                learning_hours = 2 * complete
-            else:
-                learning_hours = 0
-
-            values.append([project,
-                           viewed_first_page,
-                           views_as_percentage,
-                           engaged,
-                           engaged_as_percentage,
-                           complete,
-                           complete_as_percentage,
-                           final,
-                           printed,
-                           level,
-                           design,
-                           programming,
-                           phys,
-                           manufacture,
-                           community,
-                           duration,
-                           learning_hours])
+        complete = int(projects[project]['analytics'][final][1])
+        complete_as_percentage = complete / viewed_first_page * 100
+        try:
+            final = int(projects[project]['analytics']['complete'][1])
         except KeyError:
-            pass
+            final = 0
+        try:
+            printed = int(projects[project]['analytics']['print'][1])
+        except KeyError:
+            printed = 0
+        print(project)
+        curriculum = refine_curriculum(projects[project]['curriculum'])
+        print(project)
+        print(curriculum)
+        level = int(curriculum['level'])
+        design =int(curriculum['design'])
+        programming = int(curriculum['programming'])
+        phys = int(curriculum['phys-comp'])
+        manufacture = int(curriculum['manufacture'])
+        community =  int(curriculum['community'])
+
+        duration = int(projects[project]['duration'])
+        if duration == 1:
+            learning_hours = 0.25 * complete
+        elif duration == 2:
+            learning_hours = 1 * complete
+        elif duration == 3:
+            learning_hours = 2 * complete
+        else:
+            learning_hours = 0
+
+        values.append([project,
+                       viewed_first_page,
+                       views_as_percentage,
+                       engaged,
+                       engaged_as_percentage,
+                       complete,
+                       complete_as_percentage,
+                       final,
+                       printed,
+                       level,
+                       design,
+                       programming,
+                       phys,
+                       manufacture,
+                       community,
+                       duration,
+                       learning_hours])
+
     return values
 
 
@@ -441,29 +463,29 @@ def compose_summary(processed_data):
             percent = 0
         return percent
     
-    engaged_dev = summary_strand(10, 'engaged')
+    engaged_des = summary_strand(10, 'engaged')
     engaged_pro = summary_strand(11, 'engaged')
     engaged_phy = summary_strand(12, 'engaged')
     engaged_mak = summary_strand(13, 'engaged')
     engaged_com = summary_strand(14, 'engaged')
-    completed_dev = summary_strand(10, 'completed')
+    completed_des = summary_strand(10, 'completed')
     completed_pro = summary_strand(11, 'completed')
     completed_phy = summary_strand(12, 'completed')
     completed_mak = summary_strand(13, 'completed')
     completed_com = summary_strand(14, 'completed')
 
-    engaged_cre = summary_level('1', 'engaged')
-    engaged_bui = summary_level('2', 'engaged')
-    engaged_dev = summary_level('3', 'engaged')
-    engaged_mak = summary_level('4', 'engaged')
-    completed_cre = summary_level('1', 'completed')
-    completed_bui = summary_level('2', 'completed')
-    completed_dev = summary_level('3', 'completed')
-    completed_mak = summary_level('4', 'completed')
-    total_creator = sum([1 for row in processed_data[1:-2] if row[9] == '1'])
-    total_builder = sum([1 for row in processed_data[1:-2] if row[9] == '2'])
-    total_developer = sum([1 for row in processed_data[1:-2] if row[9] == '3'])
-    total_maker = sum([1 for row in processed_data[1:-2] if row[9] == '4'])
+    engaged_cre = summary_level(1, 'engaged')
+    engaged_bui = summary_level(2, 'engaged')
+    engaged_dev = summary_level(3, 'engaged')
+    engaged_mak = summary_level(4, 'engaged')
+    completed_cre = summary_level(1, 'completed')
+    completed_bui = summary_level(2, 'completed')
+    completed_dev = summary_level(3, 'completed')
+    completed_mak = summary_level(4, 'completed')
+    total_creator = sum([1 for row in processed_data[1:-2] if row[9] == 1])
+    total_builder = sum([1 for row in processed_data[1:-2] if row[9] == 2])
+    total_developer = sum([1 for row in processed_data[1:-2] if row[9] == 3])
+    total_maker = sum([1 for row in processed_data[1:-2] if row[9] == 4])
     design = sum([1 for row in processed_data[1:-2] if int(row[10]) > 0])
     programming = sum([1 for row in processed_data[1:-2] if int(row[11]) > 0])
     physical = sum([1 for row in processed_data[1:-2] if int(row[12]) > 0])
@@ -482,9 +504,9 @@ def compose_summary(processed_data):
             row.append(processed_data[-2][5])
             row.append(learning_hours)
             row.extend(top_views + top_engaged + top_complete)
-            row.extend([engaged_dev, engaged_pro,  engaged_phy, engaged_mak, engaged_com])
+            row.extend([engaged_des, engaged_pro,  engaged_phy, engaged_mak, engaged_com])
             row.extend([engaged_cre, engaged_bui, engaged_dev, engaged_mak])
-            row.extend([completed_dev, completed_pro,  completed_phy, completed_mak, completed_com])
+            row.extend([completed_des, completed_pro,  completed_phy, completed_mak, completed_com])
             row.extend([completed_cre, completed_bui, completed_dev, completed_mak])
             row.extend([design, programming, physical, manufacture, community])
             row.extend([total_creator, total_builder, total_developer, total_maker])
@@ -496,56 +518,15 @@ projects_analytics = process_analytics(start, end)
 projects = compile_meta_analytics(projects_analytics)
 processed_data = create_data_list(projects)
 sheets = initialize_sheets_api()
-write_data(sheets, processed_data, end)
+write_data(sheets, processed_data, end) ##change Dec to end
 
 
+processed_data, total_views, totals= calc_totals(processed_data)
+for i in processed_data[1:-2]:
+    total_percent = int(i[1]) / int(total_views) * 100
+    i[2] = total_percent
+
+summary = compose_summary(processed_data)
 
 
-
-# ##Fetch live projects
-# projects = fetch_projects()
-
-# #### Get the API service objects
-# analytics, sheets = initialize_api()
-# response = get_analytics_report(analytics)
-
-# ## Root project pages showing hits to first page and hits to all sub pages
-# root_pages = response['reports'][0]['data']['rows']
-
-# ## Initialise the dictionary of projects
-# all_pages_dict = {page['dimensions'][1][1:-1] : {'0': page['metrics'][0]['values']} for page in root_pages if page['dimensions'][1][-1] == '/'}
-
-# ## add in the first page that has a trailing `/` - can remove this later if fixed in Analytics
-# for page in root_pages:
-#     if page['dimensions'][1][-1] != '/':
-#         page_name = page['dimensions'][1][1:]
-#         try:
-#             all_pages_dict[page_name]['1'] = page['metrics'][0]['values']
-#         except KeyError:
-#             pass
-                                                         
-        
-# ## Drill down to project pages
-# pages = response['reports'][1]['data']['rows']
-
-# ## Add additional pages
-# for page in pages:
-#     try:
-#         page_name = page['dimensions'][1][1:-1]
-#         page_number = page['dimensions'][2][1:]
-#         all_pages_dict[page_name][page_number] = page['metrics'][0]['values']
-#     except KeyError:
-#         pass
-
-# meta_details = collect_meta(projects)
-# processed_data = assemble_data(meta_details)
-# processed_data, total_views, totals= calc_totals(processed_data)
-# for i in processed_data[1:-2]:
-#     total_percent = int(i[1]) / int(total_views) * 100
-#     i[2] = total_percent
-
-# summary = compose_summary(processed_data)
-
-
-# write_data(sheets, summary, 'Summary')
-
+write_data(sheets, summary, 'Summary')
