@@ -214,17 +214,17 @@ def make_projects_dict():
 def process_analytics(start_date, end_date):
     analytics = initialize_analytics_api()
     analytics_data = get_analytics_report(analytics, start_date, end_date)
+    ### Debug block ###
+    with open('analytics.json', 'w') as f:
+        f.write(json.dumps(analytics_data))
+    ###################
     parent_pages = analytics_data['reports'][0]['data']['rows']
     child_pages = analytics_data['reports'][1]['data']['rows']
 
-    ## Initialise the dictionary of projects
-    # all_pages_dict = {}
-    # for page in parent_pages:
-    #     if page['dimensions'][1][-1] != '/' and page['dimensions'][1][-1] not in all_pages_dict:
-    #         all_pages_dict[page['dimensions'][1][1:]] = {'1': page['metrics'][0]['values']}
-                           
-    all_pages_dict = {page['dimensions'][1][1:] : {'1': page['metrics'][0]['values']} for page in parent_pages if page['dimensions'][1][-1] != '/'}
+    ## Get all parent pages and ignore mistyped urls such as /project/rockband as a dictionary
+    all_pages_dict = {page['dimensions'][1][1:] : {'1': page['metrics'][0]['values']} for page in parent_pages if page['dimensions'][1][-1] != '/' and page['dimensions'][0] == '/projects/' }
 
+    ## Get all child pages and sore in dictionary
     for page in child_pages:
         ## Remove slashes from name and number
         page_name = page['dimensions'][1][1:-1]
@@ -301,24 +301,37 @@ def create_data_list(projects):
 
         viewed_first_page = int(projects[project]['analytics']['1'][1])
         views_as_percentage = viewed_first_page / total_views * 100
-        engaged = int(projects[project]['analytics']['3'][1])
-        engaged_as_percentage = engaged / viewed_first_page * 100
-        
+        print(project)
+        print(projects[project]['analytics'])
+        try:
+            engaged = int(projects[project]['analytics']['3'][1])
+            engaged_as_percentage = engaged / viewed_first_page * 100
+        except KeyError:
+            ## Literally no analytics for step 3 so engaged is 0
+            engaged = 0
+            engaged_as_percentage = 0
         ## Find last page
         pages = []
         for page in projects[project]['analytics'].keys():
             if page != 'complete' and page != 'print':
-#                print(page)
                 try:
                     pages.append(int(page))
                 except ValueError:
                     print('ODD PAGE HERE')
 
-
+        
         final = str(max(pages))
 
-        complete = int(projects[project]['analytics'][final][1])
-        complete_as_percentage = complete / viewed_first_page * 100
+        ####THIS COULD BE BUGGY. LAST PAGE IS FROM ANALYTICS DATA####
+        ####IF NO BODY CLICKS ON ACTUAL LAST PAGE THEN ANOTHER PAGE MIGHT BE SHOWN AS LAST####
+        ####UNLIKELY, BUT COULD GIVE HIGHER COMPLETION RATES####
+        ####ADDED CONDITIONAL TO AVOID FINALS LESS THAN 4####
+        if max(pages) < 4:
+            complete = 0
+            completed_as_percentage = 0
+        else:
+            complete = int(projects[project]['analytics'][final][1])
+            complete_as_percentage = complete / viewed_first_page * 100
         try:
             final = int(projects[project]['analytics']['complete'][1])
         except KeyError:
@@ -327,10 +340,10 @@ def create_data_list(projects):
             printed = int(projects[project]['analytics']['print'][1])
         except KeyError:
             printed = 0
-        print(project)
+
         curriculum = refine_curriculum(projects[project]['curriculum'])
-        print(project)
-        print(curriculum)
+
+
         level = int(curriculum['level'])
         design =int(curriculum['design'])
         programming = int(curriculum['programming'])
