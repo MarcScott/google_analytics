@@ -11,7 +11,7 @@ stdenv.mkDerivation {
     #
     python3
     python36Packages.virtualenv
-
+    python36Packages.pip
     # the following packages are related to the dependencies of your python
     # project.
     # In this particular example the python modules listed in the

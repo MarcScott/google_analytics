@@ -21,11 +21,28 @@ from datetime import datetime
 
 import calendar
 
+import sys
 import csv
 
-with open('/home/mjs/Downloads/data.csv', mode='r') as infile:
-    reader = csv.reader(infile)
-    csv_projects = [row for row in reader]
+import requests
+
+csv.field_size_limit(sys.maxsize)
+
+
+## Experiment to get csv from web
+url = "https://dataclips.heroku.com/gselhclcwirgagjzhpbxioglalbg.csv"
+
+with requests.Session() as s:
+    download = s.get(url)
+    decoded_content = download.content.decode('utf-8')
+    cr = csv.reader(decoded_content.splitlines(), delimiter=',')
+    csv_projects = [row for row in cr]
+
+# with open('/home/mjs/Downloads/data.csv', mode='r') as infile:
+#     reader = csv.reader(infile)
+#     csv_projects = [row for row in reader]
+
+
 
 ## Get title keys incase these change in the database in the future
 id_key = csv_projects[0].index('id')
@@ -67,9 +84,9 @@ def fetch_date_range():
     year = input('Enter the year you are interested in ')
     month = input('Enter the short name of the month ')
     MONTH = month
-    start_date = datetime.strptime(month + ' ' + year, '%b %Y')
+    start_date = datetime.strptime("Jan" + ' ' + year, '%b %Y')
     days_in_month = calendar.monthrange(start_date.year, start_date.month)
-    end_date = datetime.strptime(str(days_in_month[1]) + ' ' + month + ' ' + year , '%d %b %Y')
+    end_date = datetime.strptime("Jan" + ' ' + "2019", '%b %Y')
     print('Processing analytics from', start_date.strftime('%Y-%m-%d'), 'to', end_date.strftime('%Y-%m-%d'))
     return start_date, end_date
 
@@ -328,7 +345,7 @@ def create_data_list(projects):
         ####ADDED CONDITIONAL TO AVOID FINALS LESS THAN 4####
         if max(pages) < 4:
             complete = 0
-            completed_as_percentage = 0
+            complete_as_percentage = 0
         else:
             complete = int(projects[project]['analytics'][final][1])
             complete_as_percentage = complete / viewed_first_page * 100
@@ -360,7 +377,7 @@ def create_data_list(projects):
             learning_hours = 2 * complete
         else:
             learning_hours = 0
-
+        print(project)
         values.append([project,
                        viewed_first_page,
                        views_as_percentage,
@@ -531,7 +548,7 @@ projects_analytics = process_analytics(start, end)
 projects = compile_meta_analytics(projects_analytics)
 processed_data = create_data_list(projects)
 sheets = initialize_sheets_api()
-write_data(sheets, processed_data, end) ##change Dec to end
+write_data(sheets, processed_data, "Year") ##change Dec to end
 
 
 processed_data, total_views, totals= calc_totals(processed_data)
@@ -539,7 +556,8 @@ for i in processed_data[1:-2]:
     total_percent = int(i[1]) / int(total_views) * 100
     i[2] = total_percent
 
-summary = compose_summary(processed_data)
+#summary = compose_summary(processed_data)
 
 
-write_data(sheets, summary, 'Summary')
+#write_data(sheets, summary, 'Summary')
+20
