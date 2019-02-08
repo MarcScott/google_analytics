@@ -84,9 +84,9 @@ def fetch_date_range():
     year = input('Enter the year you are interested in ')
     month = input('Enter the short name of the month ')
     MONTH = month
-    start_date = datetime.strptime(month + ' ' + year, '%b %Y')
+    start_date = datetime.strptime("Jan" + ' ' + year, '%b %Y')
     days_in_month = calendar.monthrange(start_date.year, start_date.month)
-    end_date = datetime.strptime(str(days_in_month[1]) + ' ' + month + ' ' + year , '%d %b %Y')
+    end_date = datetime.strptime("Jan" + ' ' + "2019", '%b %Y')
     print('Processing analytics from', start_date.strftime('%Y-%m-%d'), 'to', end_date.strftime('%Y-%m-%d'))
     return start_date, end_date
 
@@ -548,8 +548,7 @@ projects_analytics = process_analytics(start, end)
 projects = compile_meta_analytics(projects_analytics)
 processed_data = create_data_list(projects)
 sheets = initialize_sheets_api()
-write_data(sheets, processed_data, end) ##change Dec to end
-#write_data(sheets, processed_data, "Jan 2019")
+write_data(sheets, processed_data, "Year") ##change Dec to end
 
 
 processed_data, total_views, totals= calc_totals(processed_data)
@@ -557,7 +556,8 @@ for i in processed_data[1:-2]:
     total_percent = int(i[1]) / int(total_views) * 100
     i[2] = total_percent
 
-summary = compose_summary(processed_data)
+#summary = compose_summary(processed_data)
 
 
-write_data(sheets, summary, 'Summary')
+#write_data(sheets, summary, 'Summary')
+20
