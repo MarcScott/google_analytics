@@ -262,7 +262,7 @@ def make_projects_dict():
 
     
 def process_analytics(start_date, end_date):
-    analytics = initialize_analytics_api()
+#    analytics = initialize_analytics_api()
     analytics_data = get_analytics_report(analytics, start_date, end_date)
     ### Debug block ###
     with open('analytics.json', 'w') as f:
@@ -593,11 +593,15 @@ def compose_summary(processed_data):
     return past_data
 
 start, end = fetch_date_range()
+analytics = initialize_analytics_api()
 projects_analytics = process_analytics(start, end)
 projects = compile_meta_analytics(projects_analytics)
-processed_data = create_data_list(projects)
+
 satisfaction_data = get_satisfaction_report(analytics, start, end)
 satisfaction_dict = build_clean_satisfaction(satisfaction_data)
+
+processed_data = create_data_list(projects)
+
 sheets = initialize_sheets_api()
 write_data(sheets, processed_data, end) 
 
