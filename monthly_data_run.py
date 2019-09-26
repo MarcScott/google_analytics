@@ -30,7 +30,7 @@ csv.field_size_limit(sys.maxsize)
 
 
 ## Experiment to get csv from web
-url = "https://dataclips.heroku.com/gselhclcwirgagjzhpbxioglalbg.csv"
+url ="https://data.heroku.com/dataclips/rtlwjzxzdjksnvimkzrsitfaczcm.csv?access-token=308a0659-def6-4a36-b5aa-0c6577672cbd"
 
 with requests.Session() as s:
     download = s.get(url)
